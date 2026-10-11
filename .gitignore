@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.venv/
+storage/
+coordinator/metadata.json
+*.part
+logs/

@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DFS-UTP Dashboard</title>
+<style>
+  :root {
+    --bg: #0d1220; --panel: #151c2e; --line: #26304a; --text: #e6e9f2; --muted: #8b95ad;
+    --up: #2fbf71; --down: #e5484d; --warn: #f5a524; --accent: #4f8cff;
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); }
+  header { padding: 20px 24px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 8px; }
+  h1 { margin: 0; font-size: 20px; }
+  h2 { font-size: 14px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 12px; }
+  .sub { color: var(--muted); font-size: 13px; }
+  main { padding: 20px 24px; display: grid; gap: 20px; max-width: 1200px; margin: 0 auto; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+  .nodes { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+  .node { border: 1px solid var(--line); border-radius: 8px; padding: 12px; border-left: 4px solid var(--down); }
+  .node.up { border-left-color: var(--up); }
+  .node b { font-size: 16px; }
+  .node .meta { font-size: 12px; color: var(--muted); margin-top: 6px; line-height: 1.6; word-break: break-all; }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 11px; font-weight: 600; margin: 1px 2px; }
+  .pill.up { background: rgba(47,191,113,.15); color: var(--up); }
+  .pill.down { background: rgba(229,72,77,.15); color: var(--down); }
+  .pill.warn { background: rgba(245,165,36,.15); color: var(--warn); }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  td.mono, .mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
+  .table-wrap { overflow-x: auto; }
+  a { color: var(--accent); }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  button, input[type=file]::file-selector-button {
+    background: var(--accent); color: white; border: 0; border-radius: 6px; padding: 8px 14px; cursor: pointer; font-weight: 600;
+  }
+  button.secondary { background: transparent; border: 1px solid var(--line); color: var(--text); }
+  #log { max-height: 260px; overflow-y: auto; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.7; }
+  #log .t { color: var(--muted); margin-right: 8px; }
+  #msg { font-size: 13px; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>DFS-UTP · Distributed File Storage</h1>
+  <span class="sub" id="summary">loading…</span>
+</header>
+<main>
+  <section class="panel">
+    <h2>Storage nodes (heartbeat)</h2>
+    <div class="nodes" id="nodes"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Upload</h2>
+    <div class="row">
+      <input type="file" id="file">
+      <button onclick="upload()">Upload</button>
+      <button class="secondary" onclick="repair()">Repair replicas</button>
+      <span id="msg"></span>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Files &amp; replica locations</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>File</th><th>Size</th><th>Replicas</th><th>Status</th><th>SHA-256</th><th></th></tr></thead>
+        <tbody id="files"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Event log</h2>
+    <div id="log"></div>
+  </section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmt = b => b < 1024 ? b + ' B' : b < 1048576 ? (b/1024).toFixed(1) + ' KB' : (b/1048576).toFixed(1) + ' MB';
+
+async function refresh() {
+  try {
+    const s = await (await fetch('/state')).json();
+    const ids = Object.keys(s.nodes);
+    const up = ids.filter(n => s.nodes[n].alive).length;
+    $('summary').textContent = `${up}/${ids.length} nodes up · ${s.files.length} files · replication factor ${s.replication_factor}`;
+
+    $('nodes').innerHTML = ids.map(n => {
+      const x = s.nodes[n], i = x.info || {};
+      return `<div class="node ${x.alive ? 'up' : ''}">
+        <b>${esc(n)}</b> <span class="pill ${x.alive ? 'up' : 'down'}">${x.alive ? 'UP' : 'DOWN'}</span>
+        <div class="meta">${esc(x.url)}<br>
+        host: ${esc(i.hostname || '—')}<br>
+        files: ${i.files ?? '—'} · ${i.bytes_stored != null ? fmt(i.bytes_stored) : '—'}<br>
+        last seen: ${x.last_seen_ago_s != null ? x.last_seen_ago_s + ' s ago' : 'never'}</div>
+      </div>`;
+    }).join('');
+
+    $('files').innerHTML = s.files.length ? s.files.map(f => {
+      const reps = f.replicas.map(r => `<span class="pill ${f.replica_status[r]}">${esc(r)}</span>`).join('');
+      const st = !f.available ? '<span class="pill down">UNAVAILABLE</span>'
+        : f.live_replicas < s.replication_factor ? '<span class="pill warn">DEGRADED</span>'
+        : '<span class="pill up">OK</span>';
+      return `<tr><td>${esc(f.name)}</td><td>${fmt(f.size)}</td><td>${reps}</td><td>${st}</td>
+        <td class="mono">${esc(f.sha256.slice(0, 12))}…</td>
+        <td><a href="/download/${encodeURIComponent(f.name)}">download</a></td></tr>`;
+    }).join('') : '<tr><td colspan="6" class="sub">No files yet</td></tr>';
+
+    $('log').innerHTML = s.events.map(e => `<div><span class="t">${esc(e.t)}</span>${esc(e.msg)}</div>`).join('');
+  } catch (e) {
+    $('summary').textContent = 'Coordinator unreachable';
+  }
+}
+
+async function upload() {
+  const f = $('file').files[0];
+  if (!f) return;
+  const fd = new FormData(); fd.append('file', f);
+  $('msg').textContent = 'Uploading…';
+  const r = await fetch('/upload', { method: 'POST', body: fd });
+  const j = await r.json();
+  $('msg').textContent = r.ok ? `Stored on ${j.replicas.join(', ')}` : `Error: ${j.detail}`;
+  refresh();
+}
+
+async function repair() {
+  const j = await (await fetch('/repair', { method: 'POST' })).json();
+  $('msg').textContent = j.actions.length ? `Repaired ${j.actions.length} replica(s)` : 'Nothing to repair';
+  refresh();
+}
+
+refresh();
+setInterval(refresh, 2000);
+</script>
+</body>
+</html>
