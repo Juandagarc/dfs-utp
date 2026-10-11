@@ -68,9 +68,14 @@ Coordinador ══stream══► Cliente   (encabezados: X-Served-By, X-Failed-
 
 **Heartbeat**
 ```
-cada 3 s:  Coordinador ──GET /health──► Nodo 1, 2, 3 (timeout de 2 s)
-           sin respuesta → el nodo se marca DOWN y se registra el evento
+cada 3 s:  Coordinador ──GET /health──► cada nodo (ciclo independiente por nodo,
+           timeout de 3 s y un reintento inmediato)
+           2 heartbeats fallidos seguidos → el nodo se marca DOWN y se registra el evento
 ```
+
+### Por qué 2 fallos seguidos y no 1
+
+En las primeras pruebas con 3 PCs en casas diferentes, un nodo alternaba UP/DOWN cada 10–15 s aunque seguía funcionando: por la VPN, alguna respuesta tardaba más que el timeout. Se cambió a un timeout de 3 s, un reintento inmediato y DOWN solo tras 2 heartbeats fallidos seguidos. Es el compromiso clásico de un detector de fallos: más tolerancia evita **falsos positivos** (marcar caído un nodo lento), a cambio de tardar un poco más en detectar una caída real. Las descargas no esperan al heartbeat: si un nodo no responde durante una petición, se pasa a la réplica al instante.
 
 ## 4. Datos
 
@@ -107,7 +112,7 @@ Con 3 nodos y R = 2, el sistema tolera **la caída de 1 nodo sin perder la dispo
 
 | Fallo | Detección | Comportamiento |
 |---|---|---|
-| Se detiene un nodo de almacenamiento | Timeout del heartbeat (≤ 3 s) o error de conexión durante una petición | Se marca DOWN. Las descargas se entregan desde la otra réplica. Las subidas nuevas van solo a nodos vivos. `/repair` vuelve a crear las réplicas faltantes. |
+| Se detiene un nodo de almacenamiento | 2 heartbeats fallidos seguidos (≈ 5 s si se detiene el proceso; hasta ~20 s si el host se cuelga o pierde la red) o error de conexión durante una petición | Se marca DOWN. Las descargas se entregan desde la otra réplica. Las subidas nuevas van solo a nodos vivos. `/repair` vuelve a crear las réplicas faltantes. |
 | El nodo vuelve | El siguiente heartbeat responde | Se marca UP. Sus archivos siguen en disco y vuelven a estar disponibles. |
 | Transferencia corrupta | El SHA-256 no coincide en el nodo | La escritura se rechaza (HTTP 422). El cliente también verifica el hash después de descargar. |
 | Ambas réplicas de un archivo caídas | Fallan todos los intentos de lectura | HTTP 503 "No replica available". Los demás archivos siguen funcionando. |

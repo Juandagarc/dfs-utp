@@ -50,7 +50,7 @@ Duración objetivo: **10–12 minutos**. Cada integrante habla y ejecuta una par
 ## Parte 4 — Juan Cano · Pruebas de fallo y análisis (≈ 3 min)
 
 1. **Caída de un nodo (obligatoria).** Elegir un archivo guardado, por ejemplo, en node1 + node3. El dueño de node1 lo detiene con `Ctrl+C`.
-   - Dashboard: node1 aparece **DOWN** en menos de 3 s y el archivo **DEGRADED**. Registro de eventos: `HEARTBEAT node1 is DOWN`.
+   - Dashboard: node1 aparece **DOWN** en unos 5 s y el archivo **DEGRADED**. Registro de eventos: `HEARTBEAT node1 is DOWN`.
    - Descargar el archivo otra vez (enlace del dashboard, o CLI):
      ```bash
      python client/dfs.py download informe.pdf -o recuperado.pdf

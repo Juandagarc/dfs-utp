@@ -2,6 +2,7 @@
   "replication_factor": 2,
   "heartbeat_interval_s": 1,
   "heartbeat_timeout_s": 1,
+  "failures_before_down": 2,
   "nodes": [
     { "id": "node1", "url": "http://127.0.0.1:8001" },
     { "id": "node2", "url": "http://127.0.0.1:8002" },

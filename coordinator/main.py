@@ -36,14 +36,17 @@ config = json.loads(CONFIG_PATH.read_text())
 NODES: dict[str, str] = {n["id"]: n["url"].rstrip("/") for n in config["nodes"]}
 REPLICATION_FACTOR: int = int(config.get("replication_factor", 2))
 HEARTBEAT_INTERVAL: float = float(config.get("heartbeat_interval_s", 3))
-HEARTBEAT_TIMEOUT: float = float(config.get("heartbeat_timeout_s", 2))
+HEARTBEAT_TIMEOUT: float = float(config.get("heartbeat_timeout_s", 3))
+# A node is marked DOWN only after this many consecutive failed heartbeats, so a
+# single slow reply over the VPN does not make it flap UP/DOWN.
+FAILURES_BEFORE_DOWN: int = max(1, int(config.get("failures_before_down", 2)))
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [coordinator] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("coordinator")
 logging.getLogger("httpx").setLevel(logging.WARNING)  # hide per-heartbeat request lines
 
 # ---------------------------------------------------------------- state
-node_status: dict[str, dict] = {nid: {"alive": False, "last_seen": None, "info": None} for nid in NODES}
+node_status: dict[str, dict] = {nid: {"alive": False, "last_seen": None, "info": None, "fails": 0} for nid in NODES}
 events: deque = deque(maxlen=60)
 metadata_lock = asyncio.Lock()
 
@@ -67,6 +70,7 @@ def save_metadata() -> None:
 
 metadata: dict[str, dict] = load_metadata()
 http: httpx.AsyncClient  # created in lifespan
+hb_http: httpx.AsyncClient  # heartbeats: fresh connection each time, short timeout
 
 
 # ---------------------------------------------------------------- placement
@@ -104,38 +108,61 @@ def choose_targets(filename: str, k: int, exclude: set[str] = frozenset()) -> li
 
 
 # ---------------------------------------------------------------- heartbeats
+async def probe(url: str) -> dict:
+    """GET /health with one quick retry (absorbs a dropped packet or a stale connection)."""
+    last: Exception | None = None
+    for _ in range(2):
+        try:
+            r = await hb_http.get(f"{url}/health")
+            r.raise_for_status()
+            return r.json()
+        except Exception as e:  # noqa: BLE001 - any failure counts as a missed heartbeat
+            last = e
+    raise last  # type: ignore[misc]
+
+
 async def check_node(nid: str) -> None:
     url = NODES[nid]
-    was_alive = node_status[nid]["alive"]
+    st = node_status[nid]
+    was_alive = st["alive"]
     try:
-        r = await http.get(f"{url}/health", timeout=HEARTBEAT_TIMEOUT)
-        r.raise_for_status()
-        node_status[nid].update(alive=True, last_seen=time.time(), info=r.json())
+        info = await probe(url)
+        st.update(alive=True, last_seen=time.time(), info=info, fails=0)
         if not was_alive:
             event(f"HEARTBEAT {nid} is UP ({url})")
-    except Exception:
-        node_status[nid]["alive"] = False
-        if was_alive or node_status[nid]["last_seen"] is None:
-            event(f"HEARTBEAT {nid} is DOWN ({url})")
-            node_status[nid]["last_seen"] = node_status[nid]["last_seen"] or 0
+    except Exception as e:  # noqa: BLE001
+        st["fails"] += 1
+        reason = type(e).__name__
+        if was_alive and st["fails"] < FAILURES_BEFORE_DOWN:
+            log.info("heartbeat %s missed (%d/%d): %s", nid, st["fails"], FAILURES_BEFORE_DOWN, reason)
+            return
+        st["alive"] = False
+        if was_alive or st["last_seen"] is None:
+            event(f"HEARTBEAT {nid} is DOWN ({url}) after {st['fails']} missed heartbeat(s): {reason}")
+            st["last_seen"] = st["last_seen"] or 0
 
 
-async def heartbeat_loop() -> None:
+async def heartbeat_loop(nid: str) -> None:
+    """One independent loop per node, so a slow node never delays the others."""
     while True:
-        await asyncio.gather(*(check_node(nid) for nid in NODES))
+        await check_node(nid)
         await asyncio.sleep(HEARTBEAT_INTERVAL)
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    global http
-    http = httpx.AsyncClient(timeout=httpx.Timeout(30, connect=3))
-    event(f"Coordinator started: {len(NODES)} nodes, replication factor {REPLICATION_FACTOR}")
+    global http, hb_http
+    http = httpx.AsyncClient(timeout=httpx.Timeout(30, connect=5))
+    hb_http = httpx.AsyncClient(timeout=HEARTBEAT_TIMEOUT, limits=httpx.Limits(max_keepalive_connections=0))
+    event(f"Coordinator started: {len(NODES)} nodes, replication factor {REPLICATION_FACTOR}, "
+          f"heartbeat every {HEARTBEAT_INTERVAL:g}s (DOWN after {FAILURES_BEFORE_DOWN} misses)")
     await asyncio.gather(*(check_node(nid) for nid in NODES))
-    task = asyncio.create_task(heartbeat_loop())
+    tasks = [asyncio.create_task(heartbeat_loop(nid)) for nid in NODES]
     yield
-    task.cancel()
+    for t in tasks:
+        t.cancel()
     await http.aclose()
+    await hb_http.aclose()
 
 
 app = FastAPI(title="DFS-UTP Coordinator", version="1.0", lifespan=lifespan)

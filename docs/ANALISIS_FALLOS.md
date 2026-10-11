@@ -16,7 +16,7 @@ Este documento cubre las secciones **13**, **14**, **17** y **18** de la guía.
    - Host D: `ls storage/node3/`.
 
    Los SHA-256 coinciden con el que reporta el coordinador.
-3. **Detener node1** con `Ctrl+C` en el Host B, o desconectando su red. En ≤ 3 s el dashboard muestra node1 **DOWN** y el archivo **DEGRADED**.
+3. **Detener node1** con `Ctrl+C` en el Host B, o desconectando su red. En unos 5 s (hasta ~20 s si se desconecta la red) el dashboard muestra node1 **DOWN** y el archivo **DEGRADED**.
 4. Descargar de nuevo:
    ```bash
    python client/dfs.py download informe.pdf -o recuperado.pdf
