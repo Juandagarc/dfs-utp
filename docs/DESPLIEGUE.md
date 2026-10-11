@@ -38,6 +38,8 @@ cd dfs-utp
 pip install -r requirements.txt
 ```
 
+> **Windows: ¿CMD o PowerShell?** Los comandos `.ps1`, `Set-ExecutionPolicy` y `$env:...` solo funcionan en **PowerShell**. Si abren **CMD** (Símbolo del sistema), usen las versiones `.bat`: `scripts\open_firewall.bat`, `scripts\start_node.bat node1` y `scripts\start_coordinator.bat`. No clonen el proyecto dentro de `C:\Windows\System32` (allí abre CMD como administrador): usen su carpeta de usuario, por ejemplo `cd %USERPROFILE%`.
+
 ### Firewall
 
 - **Windows:** abrir PowerShell **como Administrador** en la carpeta del proyecto y ejecutar:
@@ -46,6 +48,7 @@ pip install -r requirements.txt
   .\scripts\open_firewall.ps1
   ```
   Esto permite TCP 8000–8001 y el ping. Sin este paso, los otros hosts reciben timeouts. Es el error más común, así que conviene documentarlo en la bitácora.
+  En **CMD como Administrador**: `scripts\open_firewall.bat`
 - **Linux (ufw):** `sudo ufw allow 8000:8001/tcp`
 - **macOS:** aceptar el aviso "permitir conexiones entrantes" para Python.
 
