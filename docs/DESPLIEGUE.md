@@ -130,4 +130,5 @@ Desde un nodo, se verifica que el coordinador responde con `curl http://<IP-A>:8
 | `ModuleNotFoundError: fastapi` | Faltan dependencias | `pip install -r requirements.txt` |
 | La subida falla con un error de `python-multipart` | Falta el paquete | `pip install python-multipart` |
 | No aparece la IP de Tailscale | La máquina no inició sesión | `tailscale up` y revisar la consola de administración |
+| `127.0.0.1:8000` muestra una página "Service" de Windows Communication Foundation | Otro programa del PC ya usa el puerto 8000 | Arrancar el coordinador en otro puerto: `scripts\start_coordinator.bat 8080` y abrir `http://127.0.0.1:8080` |
 | PowerShell no deja ejecutar el script | Política de ejecución | `Set-ExecutionPolicy -Scope Process Bypass` |
