@@ -20,6 +20,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from urllib.parse import quote
 
 import httpx
 
@@ -84,12 +85,12 @@ def main() -> None:
             print(f"  sha256    : {j['sha256']}")
             if j["under_replicated"]:
                 print("  WARNING   : fewer replicas than the replication factor")
-            save_cache([c.get(f"{base}/locate/{j['name']}").json()])
+            save_cache([c.get(f"{base}/locate/{quote(j['name'], safe='')}").json()])
 
         elif a.cmd in ("download", "direct"):
             out = Path(a.out or a.name)
             if a.cmd == "download":
-                with c.stream("GET", f"{base}/download/{a.name}") as r:
+                with c.stream("GET", f"{base}/download/{quote(a.name, safe='')}") as r:
                     if r.status_code != 200:
                         r.read()
                         die(f"HTTP {r.status_code}: {r.text}")
@@ -127,7 +128,7 @@ def main() -> None:
             for f in files:
                 reps = " ".join(f"{n}[{s}]" for n, s in f["replica_status"].items())
                 print(f"{f['name']:<30} {f['size']:>10} B   {reps}")
-            save_cache([c.get(f"{base}/locate/{f['name']}").json() for f in files])
+            save_cache([c.get(f"{base}/locate/{quote(f['name'], safe='')}").json() for f in files])
 
         elif a.cmd == "nodes":
             for nid, n in c.get(f"{base}/nodes").json().items():
@@ -136,7 +137,7 @@ def main() -> None:
                 print(f"{nid:<8} {state} {n['url']:<28} host={info.get('hostname', '-'):<16} files={info.get('files', '-')}")
 
         elif a.cmd == "locate":
-            r = c.get(f"{base}/locate/{a.name}")
+            r = c.get(f"{base}/locate/{quote(a.name, safe='')}")
             if r.status_code != 200:
                 die(r.text)
             j = r.json()
@@ -148,7 +149,7 @@ def main() -> None:
             print("\n".join(f"copied {x['file']}: {x['copied_from']} -> {x['to']}" for x in acts) or "Nothing to repair")
 
         elif a.cmd == "rm":
-            print(c.delete(f"{base}/files/{a.name}").json())
+            print(c.delete(f"{base}/files/{quote(a.name, safe='')}").json())
 
     except httpx.ConnectError:
         die(f"Cannot reach coordinator at {base}. If it is down, try: dfs.py direct <name>")

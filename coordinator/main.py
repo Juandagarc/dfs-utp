@@ -22,6 +22,7 @@ import time
 from collections import deque
 from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import quote as _quote
 
 import httpx
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
@@ -75,6 +76,17 @@ def ring_order(filename: str) -> list[str]:
     ids = sorted(NODES)
     start = int(hashlib.sha256(filename.encode()).hexdigest(), 16) % len(ids)
     return ids[start:] + ids[:start]
+
+
+def quote(name: str) -> str:
+    """URL-encode a filename for use as a path segment (spaces, #, ?, accents...)."""
+    return _quote(name, safe="")
+
+
+def content_disposition(name: str) -> str:
+    """RFC 6266 header that works for any filename, including non-Latin ones."""
+    ascii_name = name.encode("ascii", "replace").decode().replace('"', "_")
+    return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(name)}"
 
 
 def mark_down(nid: str, reason: str) -> None:
@@ -131,12 +143,23 @@ app = FastAPI(title="DFS-UTP Coordinator", version="1.0", lifespan=lifespan)
 
 # ---------------------------------------------------------------- helpers
 async def push_to_node(nid: str, name: str, path: Path, digest: str) -> bool:
-    try:
+    async def chunks():
+        # Stream from disk in 1 MB pieces so large files never sit fully in RAM.
         with open(path, "rb") as f:
-            r = await http.put(f"{NODES[nid]}/files/{name}", content=f.read(), headers={"X-SHA256": digest})
-        r.raise_for_status()
+            while chunk := f.read(1 << 20):
+                yield chunk
+
+    try:
+        r = await http.put(
+            f"{NODES[nid]}/files/{quote(name)}",
+            content=chunks(),
+            headers={"X-SHA256": digest, "Content-Length": str(path.stat().st_size)},
+        )
+        if r.status_code != 200:
+            event(f"WRITE FAILED {name} -> {nid}: HTTP {r.status_code}")
+            return False
         return True
-    except Exception as e:
+    except httpx.HTTPError as e:
         event(f"WRITE FAILED {name} -> {nid}: {type(e).__name__}")
         mark_down(nid, "write failed")
         return False
@@ -181,7 +204,7 @@ def locate(name: str):
     if name not in metadata:
         raise HTTPException(404, "Unknown file")
     v = file_view(name, metadata[name])
-    v["replica_urls"] = {nid: f"{NODES[nid]}/files/{name}" for nid in v["replicas"]}
+    v["replica_urls"] = {nid: f"{NODES[nid]}/files/{quote(name)}" for nid in v["replicas"]}
     return v
 
 
@@ -248,7 +271,7 @@ async def download(name: str, request: Request):
     tried = [f"{n}:DOWN(heartbeat)" for n in dead] if alive else []
     for nid in alive + dead:
         try:
-            req = http.build_request("GET", f"{NODES[nid]}/files/{name}")
+            req = http.build_request("GET", f"{NODES[nid]}/files/{quote(name)}")
             resp = await http.send(req, stream=True)
             if resp.status_code != 200:
                 await resp.aclose()
@@ -275,10 +298,11 @@ async def download(name: str, request: Request):
             body(),
             media_type="application/octet-stream",
             headers={
-                "Content-Disposition": f'attachment; filename="{name}"',
+                "Content-Disposition": content_disposition(name),
                 "X-Served-By": nid,
                 "X-Served-By-Url": NODES[nid],
                 "X-Failed-Replicas": ",".join(tried),
+                "Content-Length": str(meta["size"]),
                 "X-SHA256": meta["sha256"],
             },
         )
@@ -299,12 +323,22 @@ async def repair():
         new_targets = choose_targets(name, missing, exclude=set(meta["replicas"]))
         if not new_targets:
             continue
-        r = await http.get(f"{NODES[live[0]]}/files/{name}")
-        if r.status_code != 200:
+        # Stream the surviving replica to a temp file (no full copy in RAM).
+        fd, tmp_name = tempfile.mkstemp()
+        tmp_path = Path(tmp_name)
+        ok = False
+        try:
+            with os.fdopen(fd, "wb") as tmp:
+                async with http.stream("GET", f"{NODES[live[0]]}/files/{quote(name)}") as r:
+                    if r.status_code == 200:
+                        async for chunk in r.aiter_bytes():
+                            tmp.write(chunk)
+                        ok = True
+        except httpx.HTTPError:
+            mark_down(live[0], "repair read failed")
+        if not ok:
+            tmp_path.unlink(missing_ok=True)
             continue
-        with tempfile.NamedTemporaryFile(delete=False) as tmp:
-            tmp.write(r.content)
-        tmp_path = Path(tmp.name)
         for nid in new_targets:
             if await push_to_node(nid, name, tmp_path, meta["sha256"]):
                 meta["replicas"].append(nid)
@@ -323,7 +357,7 @@ async def delete(name: str):
     results = {}
     for nid in metadata[name]["replicas"]:
         try:
-            r = await http.delete(f"{NODES[nid]}/files/{name}")
+            r = await http.delete(f"{NODES[nid]}/files/{quote(name)}")
             results[nid] = r.status_code
         except Exception as e:
             results[nid] = type(e).__name__

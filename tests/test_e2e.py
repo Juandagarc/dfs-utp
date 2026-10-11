@@ -88,6 +88,17 @@ def main() -> None:
             p = WORK / n / name
             check(p.is_file() and hashlib.sha256(p.read_bytes()).hexdigest() == digest, f"{p} ok")
 
+    print("3b. Unusual filenames and delete")
+    import urllib.parse
+    for odd in ("informe final ñ.pdf", "reporte→日本.txt", "a#b?c&d.txt"):
+        data = odd.encode() * 50
+        httpx.post(f"{COORD}/upload", files={"file": (odd, data)}).raise_for_status()
+        r = httpx.get(f"{COORD}/download/{urllib.parse.quote(odd, safe='')}")
+        check(r.status_code == 200 and r.content == data, f"round trip '{odd}'")
+        r = httpx.delete(f"{COORD}/files/{urllib.parse.quote(odd, safe='')}")
+        check(r.status_code == 200 and not any((WORK / n / odd).exists() for n in ("node1", "node2", "node3")),
+              f"deleted '{odd}' from every node")
+
     print("4. Node failure")
     target = "doc0.bin"
     reps, digest = placements[target]
