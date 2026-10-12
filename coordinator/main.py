@@ -272,6 +272,17 @@ async def upload(request: Request, file: UploadFile = File(...)):
             raise HTTPException(503, "No storage nodes available")
         results = await asyncio.gather(*(push_to_node(n, name, tmp_path, digest) for n in targets))
         stored = [n for n, ok in zip(targets, results) if ok]
+        tried = set(targets)
+        # If a chosen node failed to store the replica (disk full, permission
+        # error, network), fall back to the next live node on the ring.
+        while len(stored) < REPLICATION_FACTOR:
+            extra = choose_targets(name, 1, exclude=tried)
+            if not extra:
+                break
+            tried.add(extra[0])
+            if await push_to_node(extra[0], name, tmp_path, digest):
+                stored.append(extra[0])
+                event(f"FALLBACK {name}: replica placed on {extra[0]} instead")
         if not stored:
             raise HTTPException(503, "All replica writes failed")
     finally:

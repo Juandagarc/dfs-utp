@@ -102,7 +102,7 @@ Propiedades:
 ## 6. Replicación
 
 - **Todos** los archivos se guardan en **R = 2 nodos distintos** (configurable en `config/nodes.json`).
-- Las dos escrituras se hacen **en paralelo**. La subida tiene éxito si al menos una escritura funciona. Si funcionan menos de R, el archivo se marca `under_replicated` y el dashboard muestra **DEGRADED**.
+- Las dos escrituras se hacen **en paralelo**. Si un nodo elegido no logra guardar la réplica (sin permisos, disco lleno, red), el coordinador la envía al siguiente nodo vivo del anillo (*fallback*). La subida tiene éxito si al menos una escritura funciona. Si funcionan menos de R, el archivo se marca `under_replicated` y el dashboard muestra **DEGRADED**.
 - Cada réplica se verifica con SHA-256 y se escribe de forma atómica (`.part` y luego renombrar), así que nadie lee un archivo a medio escribir.
 - `POST /repair` restaura R: para cada archivo con menos de R réplicas vivas, lo copia desde una réplica viva hacia otro nodo vivo y actualiza el índice.
 

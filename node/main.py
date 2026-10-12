@@ -22,7 +22,21 @@ from fastapi.responses import FileResponse
 
 NODE_ID = os.getenv("NODE_ID", "node1")
 STORAGE_DIR = Path(os.getenv("STORAGE_DIR", f"./storage/{NODE_ID}")).resolve()
-STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+def _check_writable(d: Path) -> None:
+    probe = d / ".write_test"
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+        probe.write_bytes(b"ok")
+        probe.unlink()
+    except OSError as e:
+        raise SystemExit(
+            f"\nERROR: cannot write to {d}\n  {e}\n"
+            "  Move the project to a folder you own (e.g. your user folder, not C:\\Windows\\System32)\n"
+            "  or set STORAGE_DIR to a writable folder.\n"
+        )
+
+
+_check_writable(STORAGE_DIR)
 STARTED_AT = time.time()
 
 logging.basicConfig(

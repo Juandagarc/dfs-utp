@@ -131,4 +131,5 @@ Desde un nodo, se verifica que el coordinador responde con `curl http://<IP-A>:8
 | La subida falla con un error de `python-multipart` | Falta el paquete | `pip install python-multipart` |
 | No aparece la IP de Tailscale | La máquina no inició sesión | `tailscale up` y revisar la consola de administración |
 | `127.0.0.1:8000` muestra una página "Service" de Windows Communication Foundation | Otro programa del PC ya usa el puerto 8000 | Arrancar el coordinador en otro puerto: `scripts\start_coordinator.bat 8080` y abrir `http://127.0.0.1:8080` |
+| El nodo responde al heartbeat pero el log muestra `PermissionError ... storage\\nodeX` al subir | El proyecto está en `C:\\Windows\\System32` (carpeta protegida) | Mover el proyecto a la carpeta de usuario (`%USERPROFILE%`) y arrancar el nodo desde allí |
 | PowerShell no deja ejecutar el script | Política de ejecución | `Set-ExecutionPolicy -Scope Process Bypass` |
