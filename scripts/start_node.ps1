@@ -3,4 +3,4 @@ param([Parameter(Mandatory=$true)][string]$NodeId, [int]$Port = 8001)
 Set-Location (Join-Path $PSScriptRoot "..")
 $env:NODE_ID = $NodeId
 Write-Host "Storage node $NodeId on 0.0.0.0:$Port, files in .\storage\$NodeId"
-python -m uvicorn node.main:app --host 0.0.0.0 --port $Port
+python -m uvicorn node.main:app --host 0.0.0.0 --port $Port --timeout-keep-alive 30

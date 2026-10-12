@@ -152,7 +152,10 @@ async def heartbeat_loop(nid: str) -> None:
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     global http, hb_http
-    http = httpx.AsyncClient(timeout=httpx.Timeout(30, connect=5))
+    # Idle connections are dropped after 2 s, before the node's own keep-alive
+    # timeout closes them; reusing a just-closed socket over a high-latency VPN
+    # made requests fail periodically.
+    http = httpx.AsyncClient(timeout=httpx.Timeout(30, connect=5), limits=httpx.Limits(keepalive_expiry=2.0))
     hb_http = httpx.AsyncClient(timeout=HEARTBEAT_TIMEOUT, limits=httpx.Limits(max_keepalive_connections=0))
     event(f"Coordinator started: {len(NODES)} nodes, replication factor {REPLICATION_FACTOR}, "
           f"heartbeat every {HEARTBEAT_INTERVAL:g}s (DOWN after {FAILURES_BEFORE_DOWN} misses)")
